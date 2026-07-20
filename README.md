@@ -160,7 +160,9 @@ docker compose -p pia-melb --env-file envs/melbourne.env up -d
 ```
 
 Worked two-region example in
-[`examples/multi-region/`](examples/multi-region/).
+[`examples/multi-region/`](examples/multi-region/). All 165 `PIA_LOC` values
+are listed in [`docs/regions.md`](docs/regions.md), or live with
+`./scripts/list-regions.sh [filter]`.
 
 ## Operating notes
 

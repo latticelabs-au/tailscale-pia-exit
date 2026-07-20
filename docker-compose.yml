@@ -16,7 +16,7 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     environment:
-      # PIA account + region (region ids: https://serverlist.piaservers.net/vpninfo/servers/v6)
+      # PIA account + region (all region ids: docs/regions.md)
       LOC: ${PIA_LOC:?set PIA_LOC in your env file}
       USER: ${PIA_USER:?set PIA_USER in your env file}
       PASS: ${PIA_PASS:?set PIA_PASS in your env file}

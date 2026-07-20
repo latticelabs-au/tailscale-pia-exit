@@ -14,7 +14,7 @@ services:
     sysctls:
       net.ipv4.ip_forward: "1"
     environment:
-      # PIA (see https://serverlist.piaservers.net/vpninfo/servers/v6 for LOC ids)
+      # PIA (all LOC ids: docs/regions.md in the repo root)
       LOC: nz
       USER: p1234567
       PASS: your_pia_password
