@@ -43,8 +43,8 @@ flowchart LR
 ## Contents
 
 - [Requirements](#requirements)
-- [Quick start (compose, two containers)](#quick-start-compose-two-containers)
 - [Quick start (single container)](#quick-start-single-container)
+- [Quick start (compose, two containers)](#quick-start-compose-two-containers)
 - [Multiple regions](#multiple-regions)
 - [Why](#why)
 - [How traffic is routed](#how-traffic-is-routed)
@@ -58,39 +58,11 @@ flowchart LR
 - A PIA subscription (`p1234567`-style username + password).
 - A Tailscale account.
 
-## Quick start (compose, two containers)
-
-```bash
-git clone https://github.com/latticelabs-au/tailscale-pia-exit.git
-cd tailscale-pia-exit
-
-mkdir -p envs
-cp .env.example envs/nz.env
-# edit envs/nz.env: PIA_USER, PIA_PASS, PIA_LOC, TS_HOSTNAME
-
-docker compose -p pia-nz --env-file envs/nz.env up -d
-```
-
-If you left `TS_AUTHKEY` empty, grab the one-time login URL:
-
-```bash
-docker compose -p pia-nz logs tailscale | grep -m1 'https://login.tailscale.com'
-```
-
-Then in the [admin console](https://login.tailscale.com/admin/machines), on the
-new machine: **Approve exit node** (until approved, clients show "no exit node
-available") and, recommended, **Disable key expiry**.
-
-Confirm from any device with the exit node selected:
-
-```bash
-curl https://ipinfo.io   # PIA IP in your chosen region
-```
-
 ## Quick start (single container)
 
-A fused image, PIA WireGuard + Tailscale in one container, is published to
-GHCR for the simplest possible deployment:
+The simplest path: one prebuilt image, one `docker run`.
+
+**1. Copy this command and replace the four placeholders:**
 
 ```bash
 docker run -d --name pia-exit \
@@ -101,27 +73,90 @@ docker run -d --name pia-exit \
   -e LOCAL_NETWORK=192.168.1.0/24 \
   -e VPNDNS=8.8.8.8,8.8.4.4 \
   -e TS_HOSTNAME=pia-nz-exit \
-  -e TS_AUTHKEY=tskey-auth-... \
   -v pia:/pia -v tailscale:/var/lib/tailscale \
   --restart unless-stopped \
   ghcr.io/latticelabs-au/tailscale-pia-exit:latest
 ```
 
-`TS_AUTHKEY` is an [auth key](https://login.tailscale.com/admin/settings/keys);
-a reusable one lets the node re-register unattended. You can also omit it and
-authenticate interactively instead:
+| Replace | With |
+|---|---|
+| `USER` / `PASS` | your PIA login (the `p1234567`-style one) |
+| `LOC=nz` | the region you want ([full list](docs/regions.md)) |
+| `LOCAL_NETWORK` | your home LAN range, e.g. `192.168.1.0/24` |
+| `TS_HOSTNAME` | the name you want in the exit-node menu |
+
+**2. Run it.** Docker pulls the image and starts the tunnel. Give it ~20 seconds.
+
+**3. Connect it to your Tailscale account.** Print the login link and open it in
+your browser:
 
 ```bash
 docker logs pia-exit | grep -m1 'https://login.tailscale.com'
 ```
 
-Either way, finish in the [admin console](https://login.tailscale.com/admin/machines):
-**Approve exit node**, and ideally **Disable key expiry**.
+Sign in and the node appears in your tailnet. (To skip this step on future
+redeployments, add `-e TS_AUTHKEY=tskey-auth-...` with a reusable
+[auth key](https://login.tailscale.com/admin/settings/keys).)
 
-Compose version in
-[`examples/single-container/`](examples/single-container/). All the base
-image's PIA options ([thrnz/docker-wireguard-pia](https://github.com/thrnz/docker-wireguard-pia#config))
-and the `TS_*` variables above apply.
+**4. Approve it as an exit node.** In the
+[admin console](https://login.tailscale.com/admin/machines), find the new
+machine → click its `⋯` menu → **Edit route settings** → turn on **Use as exit
+node** → Save. Until you do this, devices say "no exit node available".
+
+While you're there: `⋯` menu → **Disable key expiry**, so the node never drops
+off after 90 days.
+
+**5. Use it.** On any device, open the Tailscale menu → **Exit nodes** → pick
+your node. Check it worked:
+
+```bash
+curl https://ipinfo.io   # should show a PIA IP in your chosen region
+```
+
+To turn it off, pick "None" in the same menu. That's the whole loop.
+
+## Quick start (compose, two containers)
+
+Same result using the compose file in this repo (official tailscale image +
+PIA container as separate services). This is the mode to use if you want
+[multiple regions](#multiple-regions) or want to customise the stack.
+
+**1. Get the code:**
+
+```bash
+git clone https://github.com/latticelabs-au/tailscale-pia-exit.git
+cd tailscale-pia-exit
+```
+
+**2. Create your env file:**
+
+```bash
+mkdir -p envs
+cp .env.example envs/nz.env
+```
+
+Open `envs/nz.env` in any editor and fill in `PIA_USER`, `PIA_PASS`,
+`PIA_LOC` ([full list](docs/regions.md)), `TS_HOSTNAME`, and `LAN_NETWORK`.
+Every field is commented in the file.
+
+**3. Start the node:**
+
+```bash
+docker compose -p pia-nz --env-file envs/nz.env up -d
+```
+
+**4. Connect it to your Tailscale account:**
+
+```bash
+docker compose -p pia-nz logs tailscale | grep -m1 'https://login.tailscale.com'
+```
+
+Open the URL, sign in, done. (Or set `TS_AUTHKEY` in the env file beforehand
+to skip this.)
+
+**5. Approve + use it:** same as steps 4-5 above: admin console → machine `⋯`
+→ **Edit route settings** → **Use as exit node**, then pick the node from any
+device's exit-node menu.
 
 ## Multiple regions
 
