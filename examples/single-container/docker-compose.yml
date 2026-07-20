@@ -19,6 +19,9 @@ services:
       USER: p1234567
       PASS: your_pia_password
       LOCAL_NETWORK: 192.168.1.0/24
+      # Keep VPNDNS set if your LAN is 10.0.0.0/24: it overlaps PIA's internal
+      # DNS (10.0.0.242/.243) and name resolution silently dies without it.
+      VPNDNS: 8.8.8.8,8.8.4.4
       FIREWALL: "1"
       PORT_FORWARDING: "0"
       # Tailscale

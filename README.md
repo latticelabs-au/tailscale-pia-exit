@@ -137,6 +137,7 @@ docker run -d --name pia-exit \
   --sysctl net.ipv4.ip_forward=1 \
   -e LOC=nz -e USER=p1234567 -e PASS=your_pia_password \
   -e LOCAL_NETWORK=192.168.1.0/24 \
+  -e VPNDNS=8.8.8.8,8.8.4.4 \
   -e TS_HOSTNAME=pia-nz-exit \
   -v pia:/pia -v tailscale:/var/lib/tailscale \
   --restart unless-stopped \
