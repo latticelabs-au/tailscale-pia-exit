@@ -90,6 +90,11 @@ services:
       TS_USERSPACE: ${TS_USERSPACE:-false}
       # Do not let MagicDNS override the tunnel's resolver (avoids DNS leaks).
       TS_ACCEPT_DNS: "false"
+      # Force the same netfilter backend the PIA image uses. Left to
+      # auto-detect, tailscaled can pick iptables-legacy while the PIA rules
+      # live in nftables; the kernel then evaluates BOTH rule sets and the PIA
+      # side's FORWARD DROP policy silently eats all forwarded exit traffic.
+      TS_DEBUG_FIREWALL_MODE: nftables
       TS_EXTRA_ARGS: --advertise-exit-node
     volumes:
       - tailscale:/var/lib/tailscale
