@@ -16,7 +16,7 @@ to.
 ```
              shared network namespace
   ┌───────────────────────────────────────────────┐
-  │  tailscaled (userspace netstack)               │
+  │  tailscale0 (TUN) ── kernel forward + NAT      │
   │      │  advertises: exit node                  │
   │      ▼                                          │
   │  default route ──▶ wg0 (PIA WireGuard) ──▶ internet
@@ -24,7 +24,7 @@ to.
   └───────────────────────────────────────────────┘
      ▲
      │ tailnet peers select this node as their exit node
-     │ (traffic arrives over WireGuard, relayed via DERP)
+     │ (LAN peers connect direct; remote peers may use DERP)
 ```
 
 ## What each piece does
@@ -44,35 +44,71 @@ egress fails closed.
 
 ### tailscale (`tailscale/tailscale`)
 
-Runs in userspace-networking mode (`TS_USERSPACE=true`). Userspace mode is enough
-to run an exit node: incoming connections from tailnet peers terminate in
-Tailscale's userspace network stack and are re-originated as ordinary socket
-connections from the container, which then follow the namespace's default route
-out through PIA. No second TUN device is needed, which keeps the single
-`/dev/net/tun` free for the WireGuard side.
+Runs in kernel networking mode (`TS_USERSPACE=false`, the default here).
+tailscaled creates its own `tailscale0` TUN device inside the shared namespace
+and installs its iptables chains (`ts-input`, `ts-forward`, `ts-postrouting`)
+alongside the PIA image's kill-switch rules. Exit-node traffic from peers
+arrives on `tailscale0`, is forwarded by the kernel, masqueraded, and leaves via
+`wg0`. The kill switch still holds: the only route out of the namespace remains
+the PIA tunnel.
 
 `--advertise-exit-node` tells the tailnet this node is willing to be an exit.
 `TS_ACCEPT_DNS=false` stops Tailscale's MagicDNS from overriding the tunnel's
 resolver, which would otherwise be a DNS-leak vector.
 
+Set `TS_USERSPACE=true` in your env file to fall back to userspace networking
+if your host cannot grant `NET_ADMIN`/`NET_RAW` or a TUN device to the tailscale
+container (some NAS and rootless setups). In userspace mode, peer connections
+terminate in Tailscale's userspace network stack (gVisor netstack) and are
+re-originated as ordinary socket connections, so no TUN or extra capabilities
+are needed, at a real throughput cost.
+
+## Performance
+
+Measured on a TrueNAS SCALE host (both containers on the same box, client on
+the same LAN, AU test file via PIA Melbourne):
+
+| Path | Throughput |
+|---|---|
+| PIA tunnel ceiling, measured inside the node | ~620 Mbps |
+| Client through the exit node, userspace mode | ~285 Mbps |
+| Client through the exit node, kernel mode | see below |
+
+Userspace netstack costs roughly half the tunnel's ceiling because every
+forwarded flow is terminated and re-originated in userspace. Kernel mode
+forwards packets in the kernel and recovers most of that gap, which is why it
+is the default.
+
 ## Trade-offs and gotchas
 
-- **DERP-relayed connections.** Because the node sits behind a VPN with a
-  firewalled namespace, tailnet peers usually cannot establish a direct
-  peer-to-peer path to it and fall back to a DERP relay. That is fine for
-  browsing and general use; it is not ideal if you need maximum throughput. This
-  is inherent to the "Tailscale behind a VPN" pattern, not specific to this repo.
+- **Remote peers may be DERP-relayed; LAN peers go direct.** Peers on the same
+  LAN as the host hole-punch a direct path to the node (the `LOCAL_NETWORK`
+  firewall exception makes this work), so at-home traffic is direct and fast.
+  Peers out on the internet often cannot punch through to a node hiding behind
+  a VPN and fall back to a DERP relay, which is fine for browsing but slower.
+  This is inherent to the "Tailscale behind a VPN" pattern, not specific to
+  this repo.
 - **Exit-node approval is manual.** `--advertise-exit-node` only offers the node.
   You still approve it once in the admin console (or via an auto-approver ACL).
+  Until approved, clients show "no exit node available" even though the node is
+  advertising.
 - **Key expiry.** Tailscale nodes expire (about 90 days) unless you disable key
   expiry on the node or use a reusable, tagged auth key. For a long-lived exit
   node, do one of those so it does not silently drop off the tailnet.
+- **VPN reconnects vs firewall rules (kernel mode).** tailscaled installs its
+  iptables chains once at startup. If the PIA image rebuilds its firewall on a
+  reconnect and Tailscale's jump rules get flushed, exit traffic stops until the
+  tailscale container restarts. If the exit node goes quiet after a VPN blip,
+  `docker compose -p <project> restart tailscale` fixes it.
 - **MTU.** If you see fast uploads but slow downloads, that is the classic sign
   of an MTU mismatch. The PIA WireGuard MTU is handled by the image; if you still
   hit it, tune it down toward 1280 on the WireGuard side.
 - **`ip_forward`.** The compose sets `net.ipv4.ip_forward=1` on the WireGuard
   container (the namespace owner) so the shared namespace will forward exit-node
   traffic.
+- **IPv6.** PIA tunnels are IPv4-only, so the node only usefully routes IPv4.
+  Tailscale still advertises `::/0` and will warn that IPv6 forwarding is off;
+  that is expected and harmless here.
 
 ## Why not gluetun?
 

@@ -34,7 +34,9 @@ Zealand node and a Melbourne node) that any tailnet device can switch between.
   up the tunnel, and runs a kill switch so nothing leaks if the tunnel drops.
 - **`tailscale`** runs with `network_mode: service:wireguard`, so it has no
   network of its own: its uplink is the PIA tunnel. It advertises itself as an
-  exit node with `--advertise-exit-node`.
+  exit node with `--advertise-exit-node`. Forwarding runs in kernel mode by
+  default for full throughput; set `TS_USERSPACE=true` if your host cannot
+  grant the needed caps (see [`docs/how-it-works.md`](docs/how-it-works.md#performance)).
 
 Because the two containers share a namespace, Tailscale's own control-plane and
 DERP traffic also travel through PIA. To the tailnet the node is just another

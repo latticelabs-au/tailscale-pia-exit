@@ -53,6 +53,13 @@ services:
     depends_on:
       wireguard:
         condition: service_healthy
+    cap_add:
+      # Kernel networking mode: tailscaled programs its own TUN device,
+      # iptables chains, and policy routes inside the shared namespace.
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
     environment:
       TS_HOSTNAME: ${TS_HOSTNAME:-pia-exit}
       # Leave TS_AUTHKEY empty to authenticate via the interactive login URL
@@ -60,9 +67,12 @@ services:
       # (re)deploys.
       TS_AUTHKEY: ${TS_AUTHKEY:-}
       TS_STATE_DIR: /var/lib/tailscale
-      # Userspace networking: no second TUN needed, and it is enough to run an
-      # exit node behind a shared VPN namespace.
-      TS_USERSPACE: "true"
+      # Kernel-mode forwarding by default: exit-node traffic is routed by the
+      # kernel instead of being re-originated by a userspace TCP stack, which
+      # roughly doubles throughput (see docs/how-it-works.md#performance).
+      # Set TS_USERSPACE=true in your env file if your host cannot grant the
+      # caps/TUN device above.
+      TS_USERSPACE: ${TS_USERSPACE:-false}
       # Do not let MagicDNS override the tunnel's resolver (avoids DNS leaks).
       TS_ACCEPT_DNS: "false"
       TS_EXTRA_ARGS: --advertise-exit-node
