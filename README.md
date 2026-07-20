@@ -40,55 +40,17 @@ flowchart LR
     TS2 --> WG2 --> P2["PIA Melbourne"] --> I
 ```
 
-## Why
+## Contents
 
-Running a VPN client and Tailscale on the same machine usually means they fight
-over the default route: one wins, the other breaks. This side-steps the fight
-entirely. The exit node lives in a network namespace where the only route out
-for payload traffic is the PIA tunnel, and Tailscale offers that namespace to
-the rest of your tailnet. Devices opt in per-connection from the exit-node
-menu and opt out just as fast.
-
-- **PIA WireGuard done natively**: your username/password, no hand-managed
-  configs, keys registered fresh on every start.
-- **Fails closed**: if the tunnel drops, the kill switch drops everything with
-  it. The exit node goes dark rather than leaking your real IP.
-- **Kernel-mode forwarding**: ~510 Mbps measured through the exit against a
-  ~620 Mbps tunnel ceiling (userspace fallback available).
-- **One region per env file**: run as many exit locations as you like off one
-  compose file.
-
-## How traffic is routed
-
-Payload and Tailscale's own transport are split deliberately, the same way
-Tailscale's built-in Mullvad integration does it:
-
-```mermaid
-flowchart TD
-    P["Packet leaving the namespace"] --> M{"fwmark 0x80000?<br/>(tailscale transport)"}
-    M -- "yes<br/>control plane / DERP / peer WireGuard" --> U["Raw uplink<br/>(already WireGuard-encrypted)"]
-    M -- "no&nbsp;&nbsp;(payload)" --> V{"PIA tunnel up?"}
-    V -- yes --> W["wg0 → PIA egress IP"]
-    V -- no --> D["DROP<br/>kill switch: fails closed"]
-```
-
-What peers browse through the exit node can only ever leave via PIA. What the
-node itself says to the Tailscale control plane and to your other devices
-(already end-to-end encrypted) uses the raw uplink, which is what lets peers
-negotiate fast direct connections instead of bouncing through DERP relays.
-Full detail, including the three firewall/backend gotchas this repo solves for
-you, in [`docs/how-it-works.md`](docs/how-it-works.md).
-
-## Performance
-
-Measured on the reference deploy (TrueNAS SCALE, client on the same LAN,
-AU-local test file via PIA Melbourne):
-
-| Path | Throughput |
-|---|---|
-| PIA tunnel ceiling (inside the node) | ~620 Mbps |
-| Client → exit node, **kernel mode (default)** | **~510 Mbps** |
-| Client → exit node, userspace mode | ~285 Mbps |
+- [Requirements](#requirements)
+- [Quick start (compose, two containers)](#quick-start-compose-two-containers)
+- [Quick start (single container)](#quick-start-single-container)
+- [Multiple regions](#multiple-regions)
+- [Why](#why)
+- [How traffic is routed](#how-traffic-is-routed)
+- [Performance](#performance)
+- [Operating notes](#operating-notes)
+- [Credits](#credits) · [License](#license)
 
 ## Requirements
 
@@ -163,6 +125,56 @@ Worked two-region example in
 [`examples/multi-region/`](examples/multi-region/). All 165 `PIA_LOC` values
 are listed in [`docs/regions.md`](docs/regions.md), or live with
 `./scripts/list-regions.sh [filter]`.
+
+## Why
+
+Running a VPN client and Tailscale on the same machine usually means they fight
+over the default route: one wins, the other breaks. This side-steps the fight
+entirely. The exit node lives in a network namespace where the only route out
+for payload traffic is the PIA tunnel, and Tailscale offers that namespace to
+the rest of your tailnet. Devices opt in per-connection from the exit-node
+menu and opt out just as fast.
+
+- **PIA WireGuard done natively**: your username/password, no hand-managed
+  configs, keys registered fresh on every start.
+- **Fails closed**: if the tunnel drops, the kill switch drops everything with
+  it. The exit node goes dark rather than leaking your real IP.
+- **Kernel-mode forwarding**: ~510 Mbps measured through the exit against a
+  ~620 Mbps tunnel ceiling (userspace fallback available).
+- **One region per env file**: run as many exit locations as you like off one
+  compose file.
+
+## How traffic is routed
+
+Payload and Tailscale's own transport are split deliberately, the same way
+Tailscale's built-in Mullvad integration does it:
+
+```mermaid
+flowchart TD
+    P["Packet leaving the namespace"] --> M{"fwmark 0x80000?<br/>(tailscale transport)"}
+    M -- "yes<br/>control plane / DERP / peer WireGuard" --> U["Raw uplink<br/>(already WireGuard-encrypted)"]
+    M -- "no&nbsp;&nbsp;(payload)" --> V{"PIA tunnel up?"}
+    V -- yes --> W["wg0 → PIA egress IP"]
+    V -- no --> D["DROP<br/>kill switch: fails closed"]
+```
+
+What peers browse through the exit node can only ever leave via PIA. What the
+node itself says to the Tailscale control plane and to your other devices
+(already end-to-end encrypted) uses the raw uplink, which is what lets peers
+negotiate fast direct connections instead of bouncing through DERP relays.
+Full detail, including the three firewall/backend gotchas this repo solves for
+you, in [`docs/how-it-works.md`](docs/how-it-works.md).
+
+## Performance
+
+Measured on the reference deploy (TrueNAS SCALE, client on the same LAN,
+AU-local test file via PIA Melbourne):
+
+| Path | Throughput |
+|---|---|
+| PIA tunnel ceiling (inside the node) | ~620 Mbps |
+| Client → exit node, **kernel mode (default)** | **~510 Mbps** |
+| Client → exit node, userspace mode | ~285 Mbps |
 
 ## Operating notes
 
