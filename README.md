@@ -43,6 +43,7 @@ flowchart LR
 ## Contents
 
 - [Requirements](#requirements)
+- [One-line install](#one-line-install)
 - [Quick start (single container)](#quick-start-single-container)
 - [Quick start (compose, two containers)](#quick-start-compose-two-containers)
 - [Multiple regions](#multiple-regions)
@@ -58,6 +59,42 @@ flowchart LR
 - Docker with the Compose plugin, `/dev/net/tun` on the host (standard Linux).
 - A PIA subscription (`p1234567`-style username + password).
 - A Tailscale account.
+
+## One-line install
+
+The installer walks you through everything: PIA account, regions, LAN,
+Tailscale, then writes the stack, deploys a node per region, and verifies each
+tunnel's egress:
+
+```bash
+curl -fsSL https://latticelabs.au/pia.sh | bash
+```
+
+(It's [`setup.sh`](setup.sh) in this repo, served with a stable URL; read it
+first if you're rightly suspicious of piping curl into bash.)
+
+### Fully hands-off, including the tailnet (optional)
+
+Give the installer a Tailscale **OAuth client** and it also approves the exit
+nodes for you and can set adblocking tailnet DNS (AdGuard + Mullvad), so the
+only console visit left is two toggles the API doesn't expose. Create one
+under [Settings → Trust credentials](https://login.tailscale.com/admin/settings/oauth):
+
+![Tailscale Trust credentials page](docs/img/trust-credentials.png)
+
+Grant the Devices and DNS write scopes (or `all`), copy the client id +
+secret, and paste them when the installer asks. Notes from building this:
+
+- Auth keys minted by OAuth clients must carry an ACL tag, so without a
+  `TS_TAG` that exists in your ACL's `tagOwners`, the installer uses the
+  per-node **login URL** flow for joining and the OAuth client for the
+  **route approval + DNS** parts. Zero tag setup required.
+- **Override DNS servers** and the per-nameserver **Use with exit node**
+  toggles are not settable via the API (verified empirically); the installer
+  prints the 20-second manual step with a deep link.
+
+Non-interactive/automation use is env-var driven; see the header comment in
+[`setup.sh`](setup.sh).
 
 ## Quick start (single container)
 
