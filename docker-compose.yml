@@ -60,6 +60,21 @@ services:
       - NET_RAW
     devices:
       - /dev/net/tun:/dev/net/tun
+    # In kernel mode tailscaled fwmarks its own transport (0x80000) so control
+    # plane / DERP / peer WireGuard bypass the exit route and use the raw
+    # uplink; the PIA kill switch only whitelists its own mark and drops them.
+    # Whitelist the tailscale mark before handing off to containerboot.
+    # Exit-node payload traffic is unmarked and still leaves ONLY via the PIA
+    # tunnel; this is the same transport/payload split Tailscale's own Mullvad
+    # integration uses, and it is what enables direct peer paths.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        (iptables -C OUTPUT -m mark --mark 0x80000/0xff0000 -j ACCEPT 2>/dev/null
+        || iptables -I OUTPUT 1 -m mark --mark 0x80000/0xff0000 -j ACCEPT
+        || true);
+        exec /usr/local/bin/containerboot
     environment:
       TS_HOSTNAME: ${TS_HOSTNAME:-pia-exit}
       # Leave TS_AUTHKEY empty to authenticate via the interactive login URL

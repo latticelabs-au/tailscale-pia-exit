@@ -7,11 +7,12 @@ When the `tailscale` container declares `network_mode: service:wireguard`, it
 does not get its own network stack. It joins the `wireguard` container's network
 namespace and shares its interfaces, routing table, and firewall.
 
-The `wireguard` container brings up a PIA WireGuard interface and sets the
-default route to it (with a kill switch dropping everything else). So from the
-moment Tailscale starts, the only way out of the shared namespace is the PIA
-tunnel. Tailscale cannot leak around it, because there is no other route to leak
-to.
+The `wireguard` container brings up a PIA WireGuard interface and policy-routes
+the namespace's default path into it, with a kill switch dropping everything
+else. So all payload traffic, including everything peers send through the exit
+node, can only leave via the PIA tunnel. The one deliberate exception is
+Tailscale's own transport, which is mark-routed around the tunnel in kernel
+mode; see "The transport/payload split" below.
 
 ```
              shared network namespace
@@ -49,19 +50,44 @@ tailscaled creates its own `tailscale0` TUN device inside the shared namespace
 and installs its iptables chains (`ts-input`, `ts-forward`, `ts-postrouting`)
 alongside the PIA image's kill-switch rules. Exit-node traffic from peers
 arrives on `tailscale0`, is forwarded by the kernel, masqueraded, and leaves via
-`wg0`. The kill switch still holds: the only route out of the namespace remains
-the PIA tunnel.
+`wg0`. The kill switch still holds: the only route out of the namespace for
+payload traffic remains the PIA tunnel.
 
 `--advertise-exit-node` tells the tailnet this node is willing to be an exit.
 `TS_ACCEPT_DNS=false` stops Tailscale's MagicDNS from overriding the tunnel's
 resolver, which would otherwise be a DNS-leak vector.
 
-Set `TS_USERSPACE=true` in your env file to fall back to userspace networking
-if your host cannot grant `NET_ADMIN`/`NET_RAW` or a TUN device to the tailscale
-container (some NAS and rootless setups). In userspace mode, peer connections
-terminate in Tailscale's userspace network stack (gVisor netstack) and are
-re-originated as ordinary socket connections, so no TUN or extra capabilities
-are needed, at a real throughput cost.
+### The transport/payload split (kernel mode)
+
+In kernel mode, tailscaled fwmarks its own transport sockets (`0x80000`) and
+installs policy-routing rules (priority 5210-5250) that send marked packets via
+the main routing table, bypassing the VPN redirect. This is deliberate,
+standard Tailscale behaviour: the tunnel's own transport must not route through
+the tunnel it provides, and it is the same split Tailscale's built-in Mullvad
+integration uses. The compose adds one firewall rule (see the `entrypoint`
+wrapper) whitelisting that mark, because the PIA image's kill switch only knows
+its own mark and would otherwise drop tailscaled's control traffic outright,
+leaving the node permanently logged out.
+
+The result:
+
+- **Payload** (what you browse via the exit node) is unmarked, hits the VPN
+  policy route, and can only leave via `wg0`. Kill switch applies. PIA IP.
+- **Transport** (control plane, DERP, encrypted WireGuard to your peers) leaves
+  via the raw uplink. Your ISP sees encrypted Tailscale traffic, as it would
+  for any Tailscale node; the coordination server sees your real IP. This is
+  what makes direct peer connections possible instead of DERP relays.
+
+If you want *everything*, transport included, inside the PIA tunnel, set
+`TS_USERSPACE=true`: userspace mode never marks packets, so all traffic follows
+the VPN route. The cost is roughly half your throughput (see below) and
+DERP-relayed connections for peers that cannot reach the node over LAN.
+
+Userspace mode is also the fallback if your host cannot grant
+`NET_ADMIN`/`NET_RAW` or a TUN device to the tailscale container (some NAS and
+rootless setups). In userspace mode, peer connections terminate in Tailscale's
+userspace network stack (gVisor netstack) and are re-originated as ordinary
+socket connections, so no TUN or extra capabilities are needed.
 
 ## Performance
 
@@ -81,13 +107,12 @@ is the default.
 
 ## Trade-offs and gotchas
 
-- **Remote peers may be DERP-relayed; LAN peers go direct.** Peers on the same
-  LAN as the host hole-punch a direct path to the node (the `LOCAL_NETWORK`
-  firewall exception makes this work), so at-home traffic is direct and fast.
-  Peers out on the internet often cannot punch through to a node hiding behind
-  a VPN and fall back to a DERP relay, which is fine for browsing but slower.
-  This is inherent to the "Tailscale behind a VPN" pattern, not specific to
-  this repo.
+- **Connection paths.** In kernel mode (default), Tailscale transport uses the
+  raw uplink, so peers negotiate direct connections the same way they would to
+  any ordinary node: LAN peers punch through immediately (verified: ~1ms
+  direct), and remote peers hole-punch or fall back to DERP depending on NATs,
+  as usual. In userspace mode, transport is forced through the VPN, so remote
+  peers usually end up DERP-relayed.
 - **Exit-node approval is manual.** `--advertise-exit-node` only offers the node.
   You still approve it once in the admin console (or via an auto-approver ACL).
   Until approved, clients show "no exit node available" even though the node is
