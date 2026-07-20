@@ -20,8 +20,11 @@ add FORWARD -i tailscale0 -j ACCEPT
 add FORWARD -o tailscale0 -j ACCEPT
 
 # Exit-node forwarding needs ip_forward inside the namespace. Compose usually
-# sets this via sysctls; this covers plain `docker run` too.
+# sets this via sysctls; this covers plain `docker run` too. v6 forwarding
+# only satisfies Tailscale's health check (::/0 is advertised); PIA tunnels
+# are v4-only so no v6 traffic actually egresses.
 sysctl -qw net.ipv4.ip_forward=1 2>/dev/null || true
+sysctl -qw net.ipv6.conf.all.forwarding=1 2>/dev/null || true
 
 # --- tailscaled -------------------------------------------------------------
 TS_STATE_DIR="${TS_STATE_DIR:-/var/lib/tailscale}"

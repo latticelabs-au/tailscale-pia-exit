@@ -70,6 +70,7 @@ docker run -d --name pia-exit \
   --cap-add NET_ADMIN \
   --device /dev/net/tun \
   --sysctl net.ipv4.ip_forward=1 \
+  --sysctl net.ipv6.conf.all.forwarding=1 \
   -e LOC=nz -e USER=p1234567 -e PASS=your_pia_password \
   -e LOCAL_NETWORK=192.168.1.0/24 \
   -e VPNDNS=8.8.8.8,8.8.4.4 \
@@ -95,6 +96,7 @@ Leave the rest as they are; this is what each one does:
 | `--cap-add NET_ADMIN` | lets the container manage its own network stack (WireGuard interface + firewall). Required. |
 | `--device /dev/net/tun` | the TUN device both tunnels are built on. Required. |
 | `--sysctl net.ipv4.ip_forward=1` | lets the kernel forward your devices' traffic into the tunnel. Required for an exit node. |
+| `--sysctl net.ipv6.conf.all.forwarding=1` | satisfies Tailscale's IP-forwarding health check (exit nodes advertise IPv6 too). PIA is v4-only so no v6 traffic actually egresses; drop this line if your host has IPv6 disabled. |
 | `-e VPNDNS=8.8.8.8,8.8.4.4` | the DNS resolver used inside the tunnel. Keep it set; if your LAN is `10.0.0.x` it overlaps PIA's internal DNS and name resolution silently dies without this. |
 | `-v pia:/pia` | persists PIA state across restarts. |
 | `-v tailscale:/var/lib/tailscale` | persists the node's Tailscale identity, so you log in once, not on every restart. |

@@ -33,7 +33,12 @@ services:
       KEEPALIVE: "25"
     sysctls:
       # Required so the shared namespace will forward exit-node traffic.
+      # v6 forwarding is needed only to satisfy Tailscale's health check
+      # (--advertise-exit-node advertises ::/0 too); PIA tunnels are v4-only,
+      # so no v6 traffic actually egresses. Delete the v6 line if your host
+      # runs with IPv6 fully disabled.
       net.ipv4.ip_forward: "1"
+      net.ipv6.conf.all.forwarding: "1"
     volumes:
       - pia:/pia
       - pia-shared:/pia-shared
