@@ -1,0 +1,76 @@
+# Tailscale exit node whose egress is routed through a Private Internet Access
+# WireGuard tunnel. One node pair per invocation, fully parameterised by env so
+# the same file spins up as many regions as you like via `-p <project>`.
+#
+#   docker compose -p pia-nz --env-file envs/nz.env up -d
+#
+# The tailscale container shares the wireguard container's network namespace, so
+# every packet Tailscale sends (control plane, DERP, and all exit-node traffic)
+# leaves the host through the PIA tunnel.
+
+services:
+  wireguard:
+    image: thrnz/docker-wireguard-pia:latest
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      # PIA account + region (region ids: https://serverlist.piaservers.net/vpninfo/servers/v6)
+      LOC: ${PIA_LOC:?set PIA_LOC in your env file}
+      USER: ${PIA_USER:?set PIA_USER in your env file}
+      PASS: ${PIA_PASS:?set PIA_PASS in your env file}
+      # Allow direct (non-tunnelled) access to your LAN so the container stays
+      # manageable and can resolve local hosts. Leave empty to send everything
+      # through PIA.
+      LOCAL_NETWORK: ${LAN_NETWORK:-}
+      # DNS used inside the tunnel.
+      VPNDNS: ${VPN_DNS:-8.8.8.8,8.8.4.4}
+      # Kill switch on: if the tunnel drops, no traffic leaks to the raw uplink.
+      FIREWALL: "1"
+      # We are not torrenting here, so no port forwarding.
+      PORT_FORWARDING: "0"
+      KEEPALIVE: "25"
+    sysctls:
+      # Required so the shared namespace will forward exit-node traffic.
+      net.ipv4.ip_forward: "1"
+    volumes:
+      - pia:/pia
+      - pia-shared:/pia-shared
+    healthcheck:
+      # Gate the tailscale sidecar until the tunnel actually carries traffic.
+      test: ["CMD-SHELL", "ping -c 1 -W 5 1.1.1.1 >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    # Ride the wireguard container's netns: Tailscale's uplink IS the PIA tunnel.
+    network_mode: service:wireguard
+    depends_on:
+      wireguard:
+        condition: service_healthy
+    environment:
+      TS_HOSTNAME: ${TS_HOSTNAME:-pia-exit}
+      # Leave TS_AUTHKEY empty to authenticate via the interactive login URL
+      # printed to `docker logs`. Set it to a reusable/tagged key for hands-off
+      # (re)deploys.
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_STATE_DIR: /var/lib/tailscale
+      # Userspace networking: no second TUN needed, and it is enough to run an
+      # exit node behind a shared VPN namespace.
+      TS_USERSPACE: "true"
+      # Do not let MagicDNS override the tunnel's resolver (avoids DNS leaks).
+      TS_ACCEPT_DNS: "false"
+      TS_EXTRA_ARGS: --advertise-exit-node
+    volumes:
+      - tailscale:/var/lib/tailscale
+    restart: unless-stopped
+
+volumes:
+  pia:
+  pia-shared:
+  tailscale:

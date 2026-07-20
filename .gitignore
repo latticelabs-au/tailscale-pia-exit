@@ -1,0 +1,11 @@
+# Real credentials live in env files. Never commit them.
+envs/
+*.env
+!*.env.example
+
+# PIA-generated WireGuard state, tailscale node state, etc.
+pia/
+pia-shared/
+tailscale-state/
+
+.DS_Store
