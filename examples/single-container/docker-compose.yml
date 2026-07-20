@@ -1,0 +1,34 @@
+# Single-container mode: the fused image runs PIA WireGuard + the Tailscale
+# exit node in one container. Simplest possible deployment.
+#
+#   docker compose up -d
+#   docker compose logs | grep login.tailscale.com   # if TS_AUTHKEY unset
+
+services:
+  pia-exit:
+    image: ghcr.io/latticelabs-au/tailscale-pia-exit:latest
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    environment:
+      # PIA (see https://serverlist.piaservers.net/vpninfo/servers/v6 for LOC ids)
+      LOC: nz
+      USER: p1234567
+      PASS: your_pia_password
+      LOCAL_NETWORK: 192.168.1.0/24
+      FIREWALL: "1"
+      PORT_FORWARDING: "0"
+      # Tailscale
+      TS_HOSTNAME: pia-nz-exit
+      TS_AUTHKEY: ""
+    volumes:
+      - pia:/pia
+      - tailscale:/var/lib/tailscale
+    restart: unless-stopped
+
+volumes:
+  pia:
+  tailscale:

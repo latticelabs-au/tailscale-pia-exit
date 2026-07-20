@@ -97,13 +97,13 @@ the same LAN, AU test file via PIA Melbourne):
 | Path | Throughput |
 |---|---|
 | PIA tunnel ceiling, measured inside the node | ~620 Mbps |
+| Client through the exit node, kernel mode (default) | ~510 Mbps |
 | Client through the exit node, userspace mode | ~285 Mbps |
-| Client through the exit node, kernel mode | see below |
 
 Userspace netstack costs roughly half the tunnel's ceiling because every
 forwarded flow is terminated and re-originated in userspace. Kernel mode
-forwards packets in the kernel and recovers most of that gap, which is why it
-is the default.
+forwards packets in the kernel and recovers most of that gap (~83% of the
+tunnel ceiling on the reference deploy), which is why it is the default.
 
 ## Trade-offs and gotchas
 
@@ -134,6 +134,44 @@ is the default.
 - **IPv6.** PIA tunnels are IPv4-only, so the node only usefully routes IPv4.
   Tailscale still advertises `::/0` and will warn that IPv6 forwarding is off;
   that is expected and harmless here.
+
+## The single-container image
+
+`ghcr.io/latticelabs-au/tailscale-pia-exit` fuses both halves into one
+container: the thrnz base image plus Tailscale's static binaries, started via
+the base image's `POST_UP` hook so tailscaled only comes up after the tunnel
+is up. `POST_RECONNECT` runs the same script again, so the firewall holes and
+tailscaled are re-asserted after every PIA reconnect, which closes the
+"reconnect flushed my rules" edge the two-container mode documents.
+
+Because there is only one container, the firewall holes are punched with the
+same iptables binary the kill switch uses, so the legacy-vs-nftables backend
+mismatch (see below) cannot occur by construction. Built for amd64 + arm64 by
+[the publish workflow](../.github/workflows/publish.yml), rebuilt weekly to
+pick up upstream updates.
+
+## Firewall gotchas this repo absorbs for you
+
+Three real bugs were found and fixed while building this, all invisible until
+you test end to end. Recorded here for anyone assembling this pattern by hand:
+
+1. **Transport fwmark vs kill switch.** Kernel-mode tailscaled fwmarks its
+   transport (`0x80000`) and policy-routes it around the VPN. The PIA kill
+   switch only whitelists its own wg-quick mark, so the node's control-plane
+   traffic is silently dropped and it sits logged out forever. Fix: accept the
+   tailscale mark in the kill switch's OUTPUT chain.
+2. **iptables backend mismatch.** The `tailscale/tailscale` image's plain
+   `iptables` is the *legacy* backend; the PIA image's rules live in
+   *nftables*. Rules written with the wrong binary land in a table the kill
+   switch never consults and do nothing. Fix: always use `iptables-nft` from
+   the sidecar (or the base image's own binary in single-container mode), and
+   pin `TS_DEBUG_FIREWALL_MODE=nftables` so tailscaled's own rules land there
+   too.
+3. **Cross-table DROP wins.** nftables gives every hook chain a vote and any
+   DROP wins, so an ACCEPT in tailscaled's own table cannot override the PIA
+   table's `FORWARD DROP` policy. Exit traffic dies even though tailscaled's
+   rules look correct. Fix: accept `tailscale0` INPUT/FORWARD in the PIA
+   table itself.
 
 ## Why not gluetun?
 
