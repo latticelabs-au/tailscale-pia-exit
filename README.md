@@ -304,6 +304,14 @@ test targets, via PIA Melbourne.
   container. Slower, and remote peers will usually be DERP-relayed.
 - **Fail-closed check**: `docker stop <project>-wireguard-1` and watch the exit
   node go dark instead of leaking.
+- **Client DNS**: if your tailnet has no global nameservers, client devices
+  (especially Windows) keep resolving DNS via their LAN/ISP resolvers outside
+  the tunnel even with the exit node active. In the
+  [admin console DNS page](https://login.tailscale.com/admin/dns), add global
+  nameservers and enable **Override DNS servers**; then client DNS rides the
+  exit node like everything else. Verify with
+  `nslookup -type=txt o-o.myaddr.l.google.com 8.8.8.8`: the reported client
+  subnet should be a PIA range, not your ISP's.
 
 ## Credits
 
