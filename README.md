@@ -245,8 +245,8 @@ menu and opt out just as fast.
   configs, keys registered fresh on every start.
 - **Fails closed**: if the tunnel drops, the kill switch drops everything with
   it. The exit node goes dark rather than leaking your real IP.
-- **Kernel-mode forwarding**: ~510 Mbps measured through the exit against a
-  ~620 Mbps tunnel ceiling (userspace fallback available).
+- **Kernel-mode forwarding**: 676 Mbps real-world (Ookla) through the exit on
+  an 869 Mbps line, idle latency within ~2 ms of the raw route.
 - **One region per env file**: run as many exit locations as you like off one
   compose file.
 
@@ -273,14 +273,25 @@ you, in [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## Performance
 
-Measured on the reference deploy (TrueNAS SCALE, client on the same LAN,
-AU-local test file via PIA Melbourne):
+Real-world Ookla speedtest from a LAN client, exit node on (PIA Melbourne)
+versus off, same machine minutes apart:
+
+| Path | Download | Upload | Idle latency |
+|---|---|---|---|
+| Raw line, exit node off | 869 Mbps | 95 Mbps | 9.5 ms |
+| **Through the exit node (kernel mode, default)** | **676 Mbps** | **89 Mbps** | 11.2 ms |
+
+Single-stream benchmark (one curl download), the apples-to-apples comparison
+that made kernel mode the default:
 
 | Path | Throughput |
 |---|---|
 | PIA tunnel ceiling (inside the node) | ~620 Mbps |
-| Client → exit node, **kernel mode (default)** | **~510 Mbps** |
+| Client → exit node, kernel mode | ~510 Mbps |
 | Client → exit node, userspace mode | ~285 Mbps |
+
+Both sets measured with the containers and the client on the same LAN, AU
+test targets, via PIA Melbourne.
 
 ## Operating notes
 

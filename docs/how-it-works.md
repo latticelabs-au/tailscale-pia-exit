@@ -91,8 +91,17 @@ socket connections, so no TUN or extra capabilities are needed.
 
 ## Performance
 
-Measured on a TrueNAS SCALE host (both containers on the same box, client on
-the same LAN, AU test file via PIA Melbourne):
+Measured with both containers on the same Docker host and the client on the
+same LAN, AU test targets, via PIA Melbourne.
+
+Real-world (Ookla, parallel streams), exit node on versus off:
+
+| Path | Download | Upload | Idle latency |
+|---|---|---|---|
+| Raw line, exit node off | 869 Mbps | 95 Mbps | 9.5 ms |
+| Through the exit node, kernel mode | 676 Mbps | 89 Mbps | 11.2 ms |
+
+Single-stream (one curl download), the controlled comparison between modes:
 
 | Path | Throughput |
 |---|---|
