@@ -287,16 +287,22 @@ if [ -z "$TS_AUTHKEY" ]; then
     done
     say "  ${D}(waiting for you to authenticate each node before continuing)${N}"
 else
-    ok "nodes join automatically with the provided auth key"
+    ok "auth key provided; nodes should join automatically (verified below)"
 fi
 
 if [ -n "$TS_OAUTH_CLIENT_ID" ]; then
     [ -n "$TOKEN" ] || oauth_token
     say ""
     say "  ${D}waiting for node(s) to appear in the tailnet, then approving exit routes...${N}"
-    for node in "${NODE_NAMES[@]}"; do
+    DEVICE_WAIT_SECS="${DEVICE_WAIT_SECS:-300}"
+    for i in "${!NODE_NAMES[@]}"; do
+        node="${NODE_NAMES[$i]}"
+        r="$(printf '%s' "$REGIONS" | tr ' ' '\n' | sed -n "$((i + 1))p")"
+        cname="pia-$(printf '%s' "$r" | tr '_' '-')-pia-exit-1"
         dev_id=""
-        for _ in $(seq 1 60); do
+        url_shown=0
+        waited=0
+        while [ "$waited" -lt "$DEVICE_WAIT_SECS" ]; do
             dev_id="$(api "$TS_API/tailnet/-/devices" | python3 -c "
 import sys, json
 for d in json.load(sys.stdin)['devices']:
@@ -304,9 +310,24 @@ for d in json.load(sys.stdin)['devices']:
         print(d['id']); break
 " 2>/dev/null || true)"
             [ -n "$dev_id" ] && break
-            sleep 5
+            # A dead/expired auth key fails silently forever; detect it and
+            # fall back to the interactive login URL instead of waiting.
+            # (substring match, not grep -q: pipefail + grep -q dies of
+            # SIGPIPE on long logs and the condition silently never fires)
+            _recent_logs="$(docker logs "$cname" 2>&1 | tail -200 || true)"
+            if [ "$url_shown" = "0" ] && [ "${_recent_logs#*invalid key}" != "$_recent_logs" ]; then
+                warn "$node: the auth key was rejected (expired/revoked); switching to login-URL flow"
+                url="$(docker exec "$cname" sh -c 'timeout 15 tailscale login 2>&1 || true' | grep -o 'https://login\.tailscale\.com/[A-Za-z0-9/]*' | head -1 || true)"
+                if [ -n "$url" ]; then
+                    say "  ${B}$node${N} → open and sign in: ${C}$url${N}"
+                else
+                    warn "$node: get a login URL with: docker exec $cname tailscale login"
+                fi
+                url_shown=1
+            fi
+            sleep 5; waited=$((waited + 5))
         done
-        [ -n "$dev_id" ] || { warn "$node never appeared; approve it manually in the admin console"; continue; }
+        [ -n "$dev_id" ] || { warn "$node not in the tailnet yet; once it joins, approve it in the admin console"; continue; }
         # Union existing enabled routes with the exit routes (never clobber).
         api "$TS_API/device/$dev_id?fields=all" | python3 -c "
 import sys, json
@@ -328,15 +349,23 @@ print(json.dumps({'routes': routes}))
     if [ "$want_dns" = "1" ]; then
         step "Tailnet DNS"
         TARGET_DNS='["94.140.14.14", "94.140.15.15", "194.242.2.4"]'
-        current="$(api "$TS_API/tailnet/-/dns/nameservers" | python3 -c "import sys,json; print(' '.join(json.load(sys.stdin).get('dns',[])))")"
-        target_flat="$(printf '%s' "$TARGET_DNS" | python3 -c "import sys,json; print(' '.join(json.load(sys.stdin)))")"
+        current="$(api "$TS_API/tailnet/-/dns/nameservers" | python3 -c "import sys,json; print(' '.join(sorted(json.load(sys.stdin).get('dns',[]))))")"
+        target_flat="$(printf '%s' "$TARGET_DNS" | python3 -c "import sys,json; print(' '.join(sorted(json.load(sys.stdin))))")"
         if [ "$current" = "$target_flat" ]; then
+            # Same set (order-insensitive): write nothing, preserve the
+            # console-side per-nameserver settings exactly as they are.
             ok "global nameservers already set ($current)"
         elif [ -n "$current" ]; then
             warn "tailnet already has nameservers: $current"
-            if confirm "Replace them with the adblocking set ($target_flat)?"; then
+            # Replacing someone's existing resolvers is destructive; it never
+            # happens implicitly. Interactive: ask. Non-interactive: only
+            # with REPLACE_DNS=1.
+            if { [ "$INTERACTIVE" = "1" ] && confirm "Replace them with the adblocking set ($target_flat)?"; } \
+               || [ "${REPLACE_DNS:-}" = "1" ]; then
                 api -X POST -H "Content-Type: application/json" -d "{\"dns\": $TARGET_DNS}" "$TS_API/tailnet/-/dns/nameservers" >/dev/null
                 ok "nameservers set: $target_flat"
+            else
+                ok "keeping your existing nameservers (set REPLACE_DNS=1 to override)"
             fi
         else
             api -X POST -H "Content-Type: application/json" -d "{\"dns\": $TARGET_DNS}" "$TS_API/tailnet/-/dns/nameservers" >/dev/null
