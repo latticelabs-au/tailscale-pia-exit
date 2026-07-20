@@ -43,13 +43,20 @@ if [ ! -e /var/run/tailscale-supervisor ]; then
 fi
 
 # Wait for the daemon socket, then bring the node up. Without TS_AUTHKEY the
-# login URL is printed to the container log.
+# login URL is printed to the container log; the timeout stops the hook from
+# blocking the base image's startup while it waits for the browser login
+# (tailscaled keeps the pending login alive, so the URL stays clickable).
 for _ in $(seq 1 30); do
     [ -S /var/run/tailscale/tailscaled.sock ] && break
     sleep 1
 done
 
+if [ -z "${TS_AUTHKEY:-}" ]; then
+    echo "[tailscale-up] TS_AUTHKEY not set: authenticate via the login URL below (docker logs | grep login.tailscale.com)"
+fi
+
 /usr/local/bin/tailscale up \
+    --timeout=60s \
     ${TS_AUTHKEY:+--authkey="$TS_AUTHKEY"} \
     --hostname="${TS_HOSTNAME:-pia-exit}" \
     --accept-dns="${TS_ACCEPT_DNS:-false}" \

@@ -101,10 +101,22 @@ docker run -d --name pia-exit \
   -e LOCAL_NETWORK=192.168.1.0/24 \
   -e VPNDNS=8.8.8.8,8.8.4.4 \
   -e TS_HOSTNAME=pia-nz-exit \
+  -e TS_AUTHKEY=tskey-auth-... \
   -v pia:/pia -v tailscale:/var/lib/tailscale \
   --restart unless-stopped \
   ghcr.io/latticelabs-au/tailscale-pia-exit:latest
 ```
+
+`TS_AUTHKEY` is an [auth key](https://login.tailscale.com/admin/settings/keys);
+a reusable one lets the node re-register unattended. You can also omit it and
+authenticate interactively instead:
+
+```bash
+docker logs pia-exit | grep -m1 'https://login.tailscale.com'
+```
+
+Either way, finish in the [admin console](https://login.tailscale.com/admin/machines):
+**Approve exit node**, and ideally **Disable key expiry**.
 
 Compose version in
 [`examples/single-container/`](examples/single-container/). All the base
