@@ -46,6 +46,7 @@ flowchart LR
 - [Quick start (single container)](#quick-start-single-container)
 - [Quick start (compose, two containers)](#quick-start-compose-two-containers)
 - [Multiple regions](#multiple-regions)
+- [Configuration reference](#configuration-reference)
 - [Why](#why)
 - [How traffic is routed](#how-traffic-is-routed)
 - [Performance](#performance)
@@ -78,12 +79,29 @@ docker run -d --name pia-exit \
   ghcr.io/latticelabs-au/tailscale-pia-exit:latest
 ```
 
+Replace these four:
+
 | Replace | With |
 |---|---|
 | `USER` / `PASS` | your PIA login (the `p1234567`-style one) |
 | `LOC=nz` | the region you want ([full list](docs/regions.md)) |
 | `LOCAL_NETWORK` | your home LAN range, e.g. `192.168.1.0/24` |
 | `TS_HOSTNAME` | the name you want in the exit-node menu |
+
+Leave the rest as they are; this is what each one does:
+
+| Flag | Why it's there |
+|---|---|
+| `--cap-add NET_ADMIN` | lets the container manage its own network stack (WireGuard interface + firewall). Required. |
+| `--device /dev/net/tun` | the TUN device both tunnels are built on. Required. |
+| `--sysctl net.ipv4.ip_forward=1` | lets the kernel forward your devices' traffic into the tunnel. Required for an exit node. |
+| `-e VPNDNS=8.8.8.8,8.8.4.4` | the DNS resolver used inside the tunnel. Keep it set; if your LAN is `10.0.0.x` it overlaps PIA's internal DNS and name resolution silently dies without this. |
+| `-v pia:/pia` | persists PIA state across restarts. |
+| `-v tailscale:/var/lib/tailscale` | persists the node's Tailscale identity, so you log in once, not on every restart. |
+| `--restart unless-stopped` | the node comes back by itself after reboots. |
+
+Every other knob is optional and listed in the
+[configuration reference](#configuration-reference).
 
 **2. Run it.** Docker pulls the image and starts the tunnel. Give it ~20 seconds.
 
@@ -137,7 +155,8 @@ cp .env.example envs/nz.env
 
 Open `envs/nz.env` in any editor and fill in `PIA_USER`, `PIA_PASS`,
 `PIA_LOC` ([full list](docs/regions.md)), `TS_HOSTNAME`, and `LAN_NETWORK`.
-Every field is commented in the file.
+Every field is commented in the file, and every option is explained in the
+[configuration reference](#configuration-reference).
 
 **3. Start the node:**
 
@@ -172,6 +191,46 @@ Worked two-region example in
 [`examples/multi-region/`](examples/multi-region/). All 165 `PIA_LOC` values
 are listed in [`docs/regions.md`](docs/regions.md), or live with
 `./scripts/list-regions.sh [filter]`.
+
+## Configuration reference
+
+Compose mode reads these from your env file; single-container mode takes them
+as `-e` flags. Where the names differ, both are shown (compose / single).
+
+**Required:**
+
+| Variable | What it is |
+|---|---|
+| `PIA_USER` / `USER` | PIA username, `p1234567` style |
+| `PIA_PASS` / `PASS` | PIA password |
+| `PIA_LOC` / `LOC` | PIA region id ([all 165](docs/regions.md)) |
+
+**Recommended:**
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TS_HOSTNAME` | `pia-exit` | The node's name in your tailnet and exit-node menu. Name it after the region (`pia-nz-exit`) so multiple nodes stay tellable-apart. |
+| `LAN_NETWORK` / `LOCAL_NETWORK` | empty | LAN range allowed to bypass the tunnel. Needed so you can reach the container from your LAN and so LAN devices get direct (fast) connections to the node. Empty = everything goes through PIA. |
+| `VPN_DNS` / `VPNDNS` | `8.8.8.8,8.8.4.4` (compose) / PIA's own (image) | Resolver used inside the tunnel. Set it explicitly if your LAN is `10.0.0.0/24`: that range overlaps PIA's internal DNS (`10.0.0.242/.243`) and lookups silently break otherwise. |
+| `TS_AUTHKEY` | empty | Tailscale [auth key](https://login.tailscale.com/admin/settings/keys). Empty = one-time browser login via the URL in the logs. A reusable key makes redeployments hands-off. |
+
+**Optional (defaults are right for almost everyone):**
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TS_EXTRA_ARGS` | `--advertise-exit-node` | Extra `tailscale up` flags. Note it *replaces* the default, so keep `--advertise-exit-node` in there if you add flags (e.g. `--advertise-exit-node --advertise-tags=tag:exit`). |
+| `TS_ACCEPT_DNS` | `false` | Whether Tailscale's MagicDNS may override the tunnel's resolver. Keep `false` to avoid DNS leaking around PIA. (Fixed to `false` in compose mode.) |
+| `TS_USERSPACE` | `false` (compose only) | `true` falls back to userspace networking for hosts that cannot grant `NET_ADMIN`/TUN to the tailscale container. Roughly halves throughput and remote peers relay via DERP. |
+| `FIREWALL` | `1` | The PIA kill switch. Leave it on; it is what makes the node fail closed instead of leaking. |
+| `PORT_FORWARDING` | `0` | PIA port forwarding. An exit node doesn't need it. |
+| `KEEPALIVE` | `25` | WireGuard persistent keepalive, seconds. |
+
+Fixed on purpose (do not change): `TS_DEBUG_FIREWALL_MODE=nftables` pins
+tailscaled to the same netfilter backend as the PIA kill switch; without it the
+two rule sets land in different backends and forwarding silently dies (the full
+story is in [`docs/how-it-works.md`](docs/how-it-works.md)). Single-container
+mode also accepts every other option of the base image
+([thrnz/docker-wireguard-pia](https://github.com/thrnz/docker-wireguard-pia#config)).
 
 ## Why
 
