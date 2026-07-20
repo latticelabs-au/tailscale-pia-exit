@@ -60,20 +60,30 @@ services:
       - NET_RAW
     devices:
       - /dev/net/tun:/dev/net/tun
-    # In kernel mode tailscaled fwmarks its own transport (0x80000) so control
-    # plane / DERP / peer WireGuard bypass the exit route and use the raw
-    # uplink; the PIA kill switch only whitelists its own mark and drops them.
-    # Whitelist the tailscale mark before handing off to containerboot.
-    # Exit-node payload traffic is unmarked and still leaves ONLY via the PIA
-    # tunnel; this is the same transport/payload split Tailscale's own Mullvad
-    # integration uses, and it is what enables direct peer paths.
+    # The PIA image's kill switch lives in the nftables backend with default
+    # DROP policies, and it only knows its own wg-quick fwmark. Kernel-mode
+    # tailscaled needs four holes punched in it, and they MUST be punched with
+    # iptables-nft (the tailscale image's plain `iptables` is the legacy
+    # backend, whose rules the kill switch never sees):
+    #   1. OUTPUT: tailscaled fwmarks its transport (0x80000) to bypass the
+    #      exit route, standard Tailscale behaviour (control plane / DERP /
+    #      peer WireGuard use the raw uplink; payload still only leaves via
+    #      wg0). Without this the node sits permanently logged out.
+    #   2-4. INPUT/FORWARD for tailscale0: an ACCEPT in tailscaled's own
+    #      firewall table cannot override the PIA table's FORWARD DROP (every
+    #      nft hook chain gets a vote; any drop wins), so exit-node traffic
+    #      must be accepted in the same table the DROP policy lives in.
+    # All idempotent; harmless no-ops in userspace mode.
     entrypoint:
       - /bin/sh
       - -c
-      - >
-        (iptables -C OUTPUT -m mark --mark 0x80000/0xff0000 -j ACCEPT 2>/dev/null
-        || iptables -I OUTPUT 1 -m mark --mark 0x80000/0xff0000 -j ACCEPT
-        || true);
+      - |
+        IPT="$$(command -v iptables-nft || command -v iptables)"
+        add() { "$$IPT" -C "$$@" 2>/dev/null || "$$IPT" -I "$$@" 2>/dev/null || true; }
+        add OUTPUT -m mark --mark 0x80000/0xff0000 -j ACCEPT
+        add INPUT -i tailscale0 -j ACCEPT
+        add FORWARD -i tailscale0 -j ACCEPT
+        add FORWARD -o tailscale0 -j ACCEPT
         exec /usr/local/bin/containerboot
     environment:
       TS_HOSTNAME: ${TS_HOSTNAME:-pia-exit}
