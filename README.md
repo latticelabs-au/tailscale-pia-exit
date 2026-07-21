@@ -67,11 +67,11 @@ Tailscale, then writes the stack, deploys a node per region, and verifies each
 tunnel's egress:
 
 ```bash
-curl -fsSL https://latticelabs.au/pia.sh | bash
+curl -fsSL https://raw.githubusercontent.com/latticelabs-au/tailscale-pia-exit/main/setup.sh | bash
 ```
 
-(It's [`setup.sh`](setup.sh) in this repo, served with a stable URL; read it
-first if you're rightly suspicious of piping curl into bash.)
+(It's [`setup.sh`](setup.sh) in this repo; read it first if you're rightly
+suspicious of piping curl into bash.)
 
 ### Fully hands-off, including the tailnet (optional)
 

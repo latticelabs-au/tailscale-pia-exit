@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tailscale-pia-exit magic installer
 #
-#   curl -fsSL https://latticelabs.au/pia.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/latticelabs-au/tailscale-pia-exit/main/setup.sh | bash
 #
 # Interactively collects your PIA + Tailscale details, writes the compose
 # stack, deploys one exit node per region, and (with a Tailscale OAuth
