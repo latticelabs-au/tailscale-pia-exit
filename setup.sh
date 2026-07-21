@@ -137,6 +137,7 @@ ask LAN_NETWORK "Your LAN range (lets LAN devices reach the node directly)" "${_
 _vpndns_def="8.8.8.8,8.8.4.4"
 ask VPN_DNS "DNS inside the tunnel" "$_vpndns_def"
 case "$LAN_NETWORK" in 10.0.0.*) warn "LAN overlaps PIA's internal DNS (10.0.0.242/.243); keeping VPNDNS explicit is required" ;; esac
+ask ROTATE_HOURS "Rotate the PIA egress IP every N hours, ~20s blip each time (0 = never)" "0"
 
 step "Tailscale"
 say "  ${D}Three ways to connect the node(s) to your tailnet:${N}"
@@ -214,6 +215,7 @@ services:
       PORT_FORWARDING: "0"
       TS_HOSTNAME: ${TS_HOSTNAME:?}
       TS_AUTHKEY: ${TS_AUTHKEY:-}
+      ROTATE_HOURS: ${ROTATE_HOURS:-0}
     volumes:
       - pia:/pia
       - tailscale:/var/lib/tailscale
@@ -236,6 +238,7 @@ for r in $REGIONS; do
         printf 'VPN_DNS=%s\n' "$VPN_DNS"
         printf 'TS_HOSTNAME=%s\n' "$node"
         printf 'TS_AUTHKEY=%s\n' "$TS_AUTHKEY"
+        printf 'ROTATE_HOURS=%s\n' "$ROTATE_HOURS"
     } > "$envf"
     chmod 600 "$envf"
     ok "envs/$r.env (node: $node)"

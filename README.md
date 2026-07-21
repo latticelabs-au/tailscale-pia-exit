@@ -263,6 +263,7 @@ as `-e` flags. Where the names differ, both are shown (compose / single).
 | `FIREWALL` | `1` | The PIA kill switch. Leave it on; it is what makes the node fail closed instead of leaking. |
 | `PORT_FORWARDING` | `0` | PIA port forwarding. An exit node doesn't need it. |
 | `KEEPALIVE` | `25` | WireGuard persistent keepalive, seconds. |
+| `ROTATE_HOURS` | `0` (off) | Single-container mode: rotate the PIA egress IP every ~N hours by cleanly restarting and re-registering with PIA. Jittered +/-20% so the cadence isn't a fingerprint; ~20s blip per rotation. Compose mode: schedule [`scripts/rotate.sh`](scripts/rotate.sh) instead. |
 
 Fixed on purpose (do not change): `TS_DEBUG_FIREWALL_MODE=nftables` pins
 tailscaled to the same netfilter backend as the PIA kill switch; without it the
@@ -343,6 +344,15 @@ test targets, via PIA Melbourne.
   container. Slower, and remote peers will usually be DERP-relayed.
 - **Fail-closed check**: `docker stop <project>-wireguard-1` and watch the exit
   node go dark instead of leaking.
+- **IP rotation (opsec)**: a long-lived static VPN IP slowly becomes an
+  identifier of you. Every PIA registration hands out a different shared
+  egress IP, so rotation is just a scheduled clean restart: set
+  `ROTATE_HOURS` (single-container mode, self-contained and jittered) or cron
+  `./scripts/rotate.sh <project>` with some sleep jitter (compose mode; it
+  restarts wireguard first, then the tailscale sidecar so it rejoins the new
+  namespace). Each rotation is a ~20s blip on that node. PIA IPs are shared
+  by many users to begin with; rotation adds churn on top, it does not make
+  you anonymous.
 - **Client DNS**: if your tailnet has no global nameservers, client devices
   (especially Windows) keep resolving DNS via their LAN/ISP resolvers outside
   the tunnel even with the exit node active. In the

@@ -28,6 +28,9 @@ services:
       # Tailscale
       TS_HOSTNAME: pia-nz-exit
       TS_AUTHKEY: ""
+      # Opsec: rotate the PIA egress IP every N hours (0 = never). Each
+      # rotation is a clean restart, ~20s blip, jittered +/-20%.
+      ROTATE_HOURS: "0"
     volumes:
       - pia:/pia
       - tailscale:/var/lib/tailscale

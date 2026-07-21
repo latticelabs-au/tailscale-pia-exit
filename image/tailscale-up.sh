@@ -26,6 +26,31 @@ add FORWARD -o tailscale0 -j ACCEPT
 sysctl -qw net.ipv4.ip_forward=1 2>/dev/null || true
 sysctl -qw net.ipv6.conf.all.forwarding=1 2>/dev/null || true
 
+# --- optional PIA IP rotation -----------------------------------------------
+# ROTATE_HOURS=<n> cleanly shuts the container down after ~n hours; the
+# restart policy brings it back with a freshly registered PIA server and a
+# different shared egress IP. The interval is jittered +/-20% so the rotation
+# cadence itself is not a fingerprint. ROTATE_SECONDS overrides for testing.
+case "${ROTATE_HOURS:-0}" in
+    ''|0) : ;;
+    *[!0-9]*) echo "[rotate] ROTATE_HOURS must be a whole number of hours; rotation disabled" >&2 ;;
+    *)
+        if [ ! -e /var/run/rotate-supervisor ]; then
+            touch /var/run/rotate-supervisor
+            (
+                base="${ROTATE_SECONDS:-$((ROTATE_HOURS * 3600))}"
+                jitter=$((base / 5))
+                [ "$jitter" -gt 0 ] || jitter=1
+                sleep_for=$((base - jitter + RANDOM % (2 * jitter + 1)))
+                echo "[rotate] next PIA IP rotation in ${sleep_for}s" >&2
+                sleep "$sleep_for"
+                echo "[rotate] rotating: clean shutdown, restart policy re-registers with PIA" >&2
+                kill -TERM 1
+            ) &
+        fi
+        ;;
+esac
+
 # --- tailscaled -------------------------------------------------------------
 TS_STATE_DIR="${TS_STATE_DIR:-/var/lib/tailscale}"
 mkdir -p "$TS_STATE_DIR" /var/run/tailscale
