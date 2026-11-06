@@ -350,7 +350,10 @@ test targets, via PIA Melbourne.
   `ROTATE_HOURS` (single-container mode, self-contained and jittered) or cron
   `./scripts/rotate.sh <project>` with some sleep jitter (compose mode; it
   restarts wireguard first, then the tailscale sidecar so it rejoins the new
-  namespace). Each rotation is a ~20s blip on that node. PIA IPs are shared
+  namespace). `ROTATE_HOURS` exits the container cleanly and relies on the
+  restart policy to bring it back, so keep `restart: unless-stopped` (or
+  `always`); `on-failure` will not restart a clean exit. Each rotation is a
+  ~20s blip on that node. PIA IPs are shared
   by many users to begin with; rotation adds churn on top, it does not make
   you anonymous.
 - **Client DNS**: if your tailnet has no global nameservers, client devices

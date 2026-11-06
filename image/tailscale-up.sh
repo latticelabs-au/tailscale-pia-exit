@@ -26,6 +26,22 @@ add FORWARD -o tailscale0 -j ACCEPT
 sysctl -qw net.ipv4.ip_forward=1 2>/dev/null || true
 sysctl -qw net.ipv6.conf.all.forwarding=1 2>/dev/null || true
 
+# --- once-per-run guard -----------------------------------------------------
+# The background supervisors below must start exactly once per container run:
+# POST_RECONNECT re-enters this hook in the same run and must not spawn
+# duplicates. A bare marker file is not enough, because /var/run lives in the
+# container's writable layer, which SURVIVES a container restart (the
+# ROTATE_HOURS shutdown, `docker restart`, scripts/rotate.sh, a host reboot
+# under the restart policy). A plain marker left behind by the previous run
+# would make every restarted container skip starting tailscaled. So each
+# marker records the run it belongs to: host boot id + PID 1's start time,
+# which changes on every container start.
+run_id="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)-$(sed 's/^.*) //' /proc/1/stat 2>/dev/null | cut -d' ' -f20)"
+first_in_run() {
+    [ "$(cat "$1" 2>/dev/null)" = "$run_id" ] && return 1
+    echo "$run_id" > "$1"
+}
+
 # --- optional PIA IP rotation -----------------------------------------------
 # ROTATE_HOURS=<n> cleanly shuts the container down after ~n hours; the
 # restart policy brings it back with a freshly registered PIA server and a
@@ -35,8 +51,7 @@ case "${ROTATE_HOURS:-0}" in
     ''|0) : ;;
     *[!0-9]*) echo "[rotate] ROTATE_HOURS must be a whole number of hours; rotation disabled" >&2 ;;
     *)
-        if [ ! -e /var/run/rotate-supervisor ]; then
-            touch /var/run/rotate-supervisor
+        if first_in_run /var/run/rotate-supervisor; then
             (
                 base="${ROTATE_SECONDS:-$((ROTATE_HOURS * 3600))}"
                 jitter=$((base / 5))
@@ -55,10 +70,11 @@ esac
 TS_STATE_DIR="${TS_STATE_DIR:-/var/lib/tailscale}"
 mkdir -p "$TS_STATE_DIR" /var/run/tailscale
 
-# Supervise tailscaled in the background; started once, survives reconnect
-# hook re-entry.
-if [ ! -e /var/run/tailscale-supervisor ]; then
-    touch /var/run/tailscale-supervisor
+# Supervise tailscaled in the background; started once per container run,
+# survives reconnect hook re-entry. A socket left over from the previous run
+# is stale: remove it so the wait below cannot mistake it for a live daemon.
+if first_in_run /var/run/tailscale-supervisor; then
+    rm -f /var/run/tailscale/tailscaled.sock
     (
         while true; do
             /usr/local/bin/tailscaled \
